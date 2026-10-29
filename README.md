@@ -9,6 +9,8 @@
 
 A High Performance Computing (HPC) research-oriented project developing a **Zero-Waste AI Meal Planner** that simultaneously minimizes household food waste, out-of-pocket grocery purchases, and nutritional deviations using parallel multi-objective genetic algorithms.
 
+Includes a comprehensive, interactive **"How It Works / Backend Explorer"** suite and a live **"Explain Mode"** side panel that instruments and visualizes every single user interaction across the frontend, REST APIs, SQLite database, C++ OpenMP engine, and fallback layers.
+
 ---
 
 ## 📌 Project Overview & Objectives
@@ -17,10 +19,34 @@ Modern household meal management incurs substantial economic and environmental c
 
 - **Sequential Genetic Algorithm (GA)**: Baseline single-threaded evolutionary search.
 - **OpenMP Parallel Island Model GA**: Shared-memory coarse-grained island architecture with periodic ring-topology elite migration.
-- **Distributed MPI Island Model GA**: Distributed-memory multi-node island parallelization.
+- **Distributed MPI Island Model GA**: Distributed-memory multi-node island parallelization (standalone research prototype).
 - **HPC Empirical Benchmarking Framework**: Strong and weak scaling evaluation across thread counts (1, 2, 4, 8, 16), measuring speedup, parallel efficiency, Amdahl fraction, and Karp-Flatt metric.
 - **Real-Time Dynamic Pantry Engine**: Instant sub-second re-optimization triggered by pantry state alterations (consumption, expiry changes, new additions).
-- **Full-Stack Research UI**: Interactive React dashboard paired with a FastAPI backend for real-time pantry inventory tracking and HPC speedup visualization.
+- **Interactive Backend Explorer & Explain Mode**: Transparent full-stack observability explaining every button click, state mutation, network payload, SQL query, C++ stage timing, and UI update in real time.
+
+---
+
+## 🔍 How It Works & Live Explain Mode
+
+The application includes two deep educational observability tools:
+
+### 1. "How It Works" Tab (`HowItWorksTab.jsx`)
+An 8-section interactive handbook built directly into the UI:
+1. **System Architecture**: High-level topology diagram, interactive 7-step sequence walkthrough (Button Click → FastAPI → DataLoader → OpenMP Island GA → JSON Serialization → React UI), and component boundary matrix.
+2. **Action-by-Action Explorer**: Live inventory of 20+ user interactions with search, category filtering, handler signatures, state mutations, and backend routes.
+3. **API Explorer**: Interactive REST directory detailing endpoints, methods, request/response schemas, validation rules, and error handling.
+4. **Database & Persistence**: SQLite schema (`pantry_items`, `optimization_history`), disk files, temporary IPC bridge buffers, and localStorage client cache.
+5. **Genetic Algorithm Engine**: Complete composite fitness formula derivations, worked numerical examples, genome chromosome layout, and coarse-grained OpenMP island migration mechanics.
+6. **Execution Modes & Honesty**: Clear operational truth matrix comparing Backend Native mode (C++ OpenMP) vs Browser Fallback mode (single-threaded heuristic JS) without synthetic or fabricated timings.
+7. **HPC Metrics & Provenance**: Mathematical definitions for Speedup $S_p$, Parallel Efficiency $E_p$, and Karp-Flatt Metric $e$, distinguishing prerecorded benchmark sweeps from dynamic runtime traces.
+8. **Limitations & Implementation Gaps**: Honest engineering disclosure of known constraints, unwired endpoints (`PUT /pantry/{id}`), and standalone prototype boundaries (MPI).
+
+### 2. Global "Explain Mode" Toggle (`ExplainModePanel.jsx`)
+A collapsible live side panel accessible via the **"Explain Mode: ON/OFF"** toggle in the Navbar:
+- **Real-Time Action Tracing**: Automatically captures every button click, form input, navigation switch, and background startup fetch.
+- **Simple & Technical Views**: One-click toggle between beginner-friendly summaries and low-level technical telemetry (correlation IDs, millisecond timings, SQL queries, file operations, optimizer stage breakdowns).
+- **Correlation ID Tracking**: Automatically binds frontend requests to backend execution traces via the `X-Correlation-Id` header.
+- **Recursion-Safe**: Panel interactions (copying JSON, switching tabs) never pollute the execution trace log.
 
 ---
 
@@ -29,30 +55,30 @@ Modern household meal management incurs substantial economic and environmental c
 ```
                                 +---------------------------------------------+
                                 |          React + Tailwind Frontend          |
-                                |   (Pantry Manager & HPC Bench Dashboard)    |
+                                |     (Pantry Manager, HPC Dash, Explorer)    |
                                 +----------------------+----------------------+
-                                                       | REST / JSON
+                                                       | REST / JSON + Correlation-ID
                                         +--------------v--------------+
                                         |       FastAPI Backend       |
                                         | (SQLite DB & Re-optimizer)  |
                                         +--------------+--------------+
-                                                       | Subprocess / C-API
+                                                       | Subprocess / Temporary IPC Buffer
                                         +--------------v--------------+
                                         |   C++ HPC Engine (OpenMP)   |
                                         +--------------+--------------+
                                                        |
-                       +-------------------------------+-------------------------------+
-                       |                               |                               |
-          +------------v------------+     +------------v------------+     +------------v------------+
-          |    Island 0 (Thread 0)  |     |    Island 1 (Thread 1)  |     |    Island K (Thread K)  |
-          |  Pop: N/K Individuals   |     |  Pop: N/K Individuals   |     |  Pop: N/K Individuals   |
-          |  - Tournament Selection |     |  - Tournament Selection |     |  - Tournament Selection |
-          |  - Uniform Crossover    |     |  - Uniform Crossover    |     |  - Uniform Crossover    |
-          |  - Mutation & Elitism   |     |  - Mutation & Elitism   |     |  - Mutation & Elitism   |
-          +------------+------------+     +------------+------------+     +------------+------------+
-                       |                               |                               |
-                       +<====== Ring Migration =======>+<====== Ring Migration =======>+
-                                     (Every M Generations: Top-E Elites)
+                        +-------------------------------+-------------------------------+
+                        |                               |                               |
+           +------------v------------+     +------------v------------+     +------------v------------+
+           |    Island 0 (Thread 0)  |     |    Island 1 (Thread 1)  |     |    Island K (Thread K)  |
+           |  Pop: N/K Individuals   |     |  Pop: N/K Individuals   |     |  Pop: N/K Individuals   |
+           |  - Tournament Selection |     |  - Tournament Selection |     |  - Tournament Selection |
+           |  - Uniform Crossover    |     |  - Uniform Crossover    |     |  - Uniform Crossover    |
+           |  - Mutation & Elitism   |     |  - Mutation & Elitism   |     |  - Mutation & Elitism   |
+           +------------+------------+     +------------+------------+     +------------+------------+
+                        |                               |                               |
+                        +<====== Ring Migration =======>+<====== Ring Migration =======>+
+                                      (Every M Generations: Top-E Elites)
 ```
 
 ---
@@ -63,12 +89,33 @@ A candidate solution chromosome is $\mathbf{x} = \langle r_1, r_2, \dots, r_k \r
 
 $$\Phi(\mathbf{x}) = w_1 \cdot f_{\text{nutr}}(\mathbf{x}) + w_2 \cdot f_{\text{expiry}}(\mathbf{x}) - w_3 \cdot f_{\text{cost}}(\mathbf{x}) - w_4 \cdot f_{\text{waste}}(\mathbf{x}) - P_{\text{diet}}(\mathbf{x})$$
 
-1. **Nutritional Satisfaction ($f_{\text{nutr}}$)**: Normalized inverse Manhattan distance against target daily Calories, Protein, Carbohydrates, and Fats.
-2. **Perishable Expiry Utilization ($f_{\text{expiry}}$)**: Exponential decay urgency weight prioritizing consumption of ingredients nearing expiration ($0 \le \text{days} \le 3$).
-3. **Out-of-Pocket Procurement Cost ($f_{\text{cost}}$)**: Monetary penalty for ingredients missing from pantry requiring retail purchase.
-4. **Food Waste Penalty ($f_{\text{waste}}$)**: Spoilage hazard penalty for stocked perishables expiring within critical window ($E_i \le 2$ days) that remain unutilized.
+1. **Nutritional Satisfaction ($f_{\text{nutr}}$)**: Normalized inverse Manhattan distance against target daily Calories, Protein, Carbohydrates, and Fats:
+   $$f_{\text{nutr}} = \max\left(0, 1 - \frac{1}{4}\sum_{m \in \{\text{cal, prot, carb, fat}\}} \frac{|A_m - T_m|}{T_m}\right)$$
+2. **Perishable Expiry Utilization ($f_{\text{expiry}}$)**: Prioritizes ingredients nearing expiration ($0 \le \text{days} \le 3$) using an exponential decay weight:
+   $$w_{\text{urgency}}(i) = e^{-0.5 \cdot \text{days}_i}$$
+3. **Out-of-Pocket Procurement Cost ($f_{\text{cost}}$)**: Normalized monetary penalty for ingredients missing from the pantry that require grocery purchase.
+4. **Food Waste Spoilage Penalty ($f_{\text{waste}}$)**: Penalty assessed for critical perishables ($\le 2$ days left) that remain unutilized in the proposed plan.
 
 Detailed mathematical derivations and objective proofs are provided in [`docs/problem_formulation.md`](docs/problem_formulation.md).
+
+---
+
+## 📡 REST API Reference
+
+The FastAPI backend dual-mounts all endpoints with and without the `/api` prefix for seamless local and reverse-proxy deployment:
+
+| Method | Endpoint | Description | Calling UI Action | DB / File Ops |
+| :--- | :--- | :--- | :--- | :--- |
+| `GET` | `/` or `/api/` | Service health & metadata check | System Status tab | None |
+| `GET` | `/pantry` | Fetch full pantry inventory | Startup / Pantry Manager | `SELECT * FROM pantry_items` |
+| `POST` | `/pantry` | Insert new pantry ingredient | Add Item Form Submit | `INSERT INTO pantry_items` |
+| `PUT` | `/pantry/{id}` | Update ingredient properties | *Not currently called by UI* | `UPDATE pantry_items` |
+| `DELETE` | `/pantry/{id}` | Remove ingredient from inventory | Delete Button (Grid/Table) | `DELETE FROM pantry_items` |
+| `POST` | `/optimize` | Run multi-objective optimization | Meal Plan / Nutrition / Navbar | OpenMP C++ GA + history log |
+| `GET` | `/recommendations` | Generate quick recommended plan | *Not currently called by UI* | Triggers live 4-thread GA |
+| `GET` | `/performance` | Fetch benchmark scaling sweeps | HPC Dashboard / Startup | Reads `benchmark_results_summary.json` |
+| `GET` | `/experiments` | Fetch benchmark matrix | HPC Dashboard | Reads `benchmark_results_summary.json` |
+| `POST` | `/simulate-pantry-change` | Simulate spoil / consume / reset | Pantry Simulation Bar | SQLite update + auto-reoptimize |
 
 ---
 
@@ -76,29 +123,35 @@ Detailed mathematical derivations and objective proofs are provided in [`docs/pr
 
 ```
 parallel-pantry-meal-optimizer/
-├── data/
-│   ├── raw/                  # Multi-tier raw recipe datasets (Small, Medium, Large)
-│   ├── processed/            # Normalized JSON/CSV and compact C++ .dat files
-│   └── sample_pantry/        # Realistic perishable pantry inventory
+├── backend/                  # FastAPI REST server, SQLite DB & optimizer bridge
+│   ├── main.py               # API routes, CORS, correlation-ID middleware
+│   ├── models.py             # Pydantic schemas (Request, Response, TraceMeta)
+│   ├── database.py           # SQLite connection & default pantry seeder
+│   └── optimizer_bridge.py   # Subprocess invocation & stage timing instrumentation
+├── frontend/                 # React + Vite + Tailwind CSS dashboard
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── HowItWorksTab.jsx        # 8-section interactive backend explorer
+│   │   │   ├── ExplainModePanel.jsx     # Collapsible live action inspection drawer
+│   │   │   ├── Navbar.jsx               # Navigation, seed reshuffle, explain toggle
+│   │   │   ├── MealPlanView.jsx         # Meal cards, recipe drawer, step checkoffs
+│   │   │   ├── PantryManager.jsx        # Pantry inventory grid/table & simulations
+│   │   │   ├── NutritionalTargets.jsx   # Macro targets, diet tags, speed presets
+│   │   │   ├── HPCMetricsDashboard.jsx  # Scaling charts & island visualization
+│   │   │   └── ImplementationStatus.jsx # Real-time system health audit
+│   │   └── services/
+│   │       ├── actionRegistry.js        # Comprehensive registry of all user actions
+│   │       ├── traceManager.js          # Circular trace buffer & subscriber bus
+│   │       └── clientOptimizer.js       # Honest browser-side heuristic fallback GA
 ├── src/
-│   ├── preprocessing/        # Data normalization and vocabulary builder
-│   ├── optimization/         # Optimization core interfaces
 │   ├── sequential_ga/        # C++ single-threaded Genetic Algorithm
 │   ├── parallel_ga/          # C++ OpenMP Island Model GA
 │   ├── island_model/         # Migration topologies & ring buffer exchange
+│   ├── mpi_ga/               # MPI multi-node distributed prototype
 │   ├── fitness/              # Multi-objective fitness evaluator
-│   ├── models/               # Domain data structures (Recipe, Chromosome, Pantry)
-│   └── utils/                # HPC timers, RNGs, and I/O parsers
-├── experiments/              # Benchmark configurations & parameter grids
-├── results/
-│   ├── figures/              # Publication-ready charts (Speedup, Efficiency, Convergence)
-│   ├── tables/               # CSV/LaTeX benchmark metric tables
-│   └── logs/                 # Execution traces
-├── backend/                  # FastAPI REST server & real-time re-optimization hook
-├── frontend/                 # React + Vite + Tailwind CSS dashboard
-├── docs/                     # Research paper drafts & problem formulation
-├── scripts/                  # Data synthesis, automated benchmarking & plotting
-├── tests/                    # Unit and integration test suites
+│   └── models/               # Domain data structures (Recipe, Chromosome, Pantry)
+├── tests/                    # Backend API, C++ GA, and instrumentation pytest suites
+├── data/                     # Recipe tiers (Small, Medium, Large) & benchmark data
 ├── requirements.txt          # Python dependencies
 └── README.md
 ```
@@ -121,53 +174,41 @@ cd Parallel-pantry-meal-optimizer
 pip install -r requirements.txt
 ```
 
-### 2. Generate and Preprocess Datasets
-```bash
-python scripts/generate_datasets.py
-python src/preprocessing/preprocess.py
-```
-
-### 3. Compile and Run
+### 2. Compile C++ Executables & Run Tests
 ```powershell
-# Build C++ Executables
+# Build C++ Executables (Windows PowerShell)
 powershell -ExecutionPolicy Bypass -File scripts/build_cpp.ps1
 
-# Run Sequential Optimization
-.\bin\sequential_ga.exe --verbose
+# Run full pytest suite (24 tests including trace instrumentation)
+python -m pytest tests/ -v
 ```
 
-### 4. Run Automated Tests
+### 3. Launch Backend & Frontend
+In Terminal 1 (FastAPI Backend):
 ```bash
-python -m unittest discover tests
+python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
----
+In Terminal 2 (React Frontend):
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-## 📊 Roadmap & Project Phases
-
-- [x] **Phase 1: Project Setup, Multi-Tier Dataset Pipeline & Problem Formulation**
-- [x] **Phase 2: Sequential Genetic Algorithm (C++)**
-- [x] **Phase 3: OpenMP Parallel Shared-Memory Island Model (C++)**
-- [x] **Phase 4: Advanced Island Topologies & Elite Ring Migration**
-- [x] **Phase 5: Distributed Memory MPI Architecture & Scalability Engine**
-- [x] **Phase 6: HPC Benchmarking Suite (Speedup, Efficiency, Karp-Flatt Metric)**
-- [x] **Phase 7: Publication-Quality Result Visualizations & Plots**
-- [x] **Phase 8: Python FastAPI Backend & Dynamic Real-Time Re-Optimizer**
-- [x] **Phase 9: Interactive React + Vite + Tailwind Dashboard**
-- [x] **Phase 10: Research Paper Manuscript & IEEE/ACM LaTeX Draft**
+Visit `http://localhost:5173` in your browser. Toggle **Explain Mode** in the navigation bar to observe real-time telemetry as you interact with the application.
 
 ---
 
-## 📈 Empirical HPC Benchmark Results
+## ⚠️ Known Architecture Limitations & Truthful Disclosures
 
-Measured on 4-Core OpenMP Shared-Memory architecture across 4 scaling scenarios (5 statistical repetitions each):
+To preserve academic and engineering rigor, the following design boundaries are explicitly disclosed:
 
-| Scenario | Dataset / Load | Sequential Time ($T_1$) | Parallel 4-Threads ($T_4$) | Parallel Speedup ($S_4$) | 2-Thread Efficiency | Karp-Flatt ($e$) |
-| :--- | :--- | :---: | :---: | :---: | :---: | :---: |
-| **1. Small Tier** | 60 Recipes, Pop=100 | 69.57 ms | 52.56 ms | **1.32x** | 53.0% | 0.6740 |
-| **2. Medium Tier** | 500 Recipes, Pop=200 | 235.85 ms | 121.92 ms | **1.93x** | 65.6% | 0.3559 |
-| **3. Large Tier** | 2500 Recipes, Pop=400 | 570.73 ms | 292.55 ms | **1.95x** | 81.9% | 0.3501 |
-| **4. Stress Load** | 2500 Recipes, Pop=800 | 1668.14 ms | 685.17 ms | **2.43x** | **94.6%** | **0.0570** |
+1. **`PUT /pantry/{id}` Route**: The backend implements and tests a full HTTP PUT endpoint for updating pantry items. However, the current UI only exposes Create (Add Item) and Delete actions; no inline edit modal is currently rendered.
+2. **Recipe Step Completion vs. Inventory**: Marking a recipe step complete in the recipe drawer tracks local cooking progress; it does not automatically decrement ingredient weights in SQLite. Inventory is decremented exclusively via explicit delete actions or the "Consume 100g" simulation button.
+3. **`GET /performance` Provenance**: Benchmark scaling metrics displayed on the HPC Dashboard are loaded from a validated empirical benchmark dataset (`benchmark_results_summary.json`). The dashboard does not execute a live C++ thread sweep upon opening to prevent blocking the web server.
+4. **Browser Fallback Fidelity**: When the FastAPI backend is offline, the frontend runs a JavaScript genetic algorithm in the browser. It honestly reports single-threaded browser execution (`Browser JavaScript Heuristic GA`), measures real elapsed time via `performance.now()`, and does not fabricate OpenMP thread speedup.
+5. **MPI Multi-Node GA**: The MPI implementation in `src/mpi_ga/mpi_island_ga.cpp` is a high-performance research prototype designed for cluster environments; it is not hooked into the web application's subprocess bridge.
 
 ---
 
@@ -179,5 +220,3 @@ Developed as an HPC academic research project investigating parallel evolutionar
 | :--- | :--- | :--- |
 | **Kashish Upadhyay** | [@KashishUpadhyay30](https://github.com/KashishUpadhyay30) | Lead Author & Project Architect |
 | **Animesh Labh** | [@animeshlabh57-rgb](https://github.com/animeshlabh57-rgb) | Research & HPC Co-Author |
-
-

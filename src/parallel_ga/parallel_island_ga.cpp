@@ -1,5 +1,10 @@
 #include "parallel_island_ga.hpp"
+#ifdef _OPENMP
 #include <omp.h>
+#else
+inline int omp_get_max_threads() { return 4; }
+inline int omp_get_thread_num() { return 0; }
+#endif
 #include <algorithm>
 #include <chrono>
 #include <iostream>
@@ -19,7 +24,7 @@ ParallelIslandGA::ParallelIslandGA(
     m_evaluator(evaluator),
     m_config(config),
     m_migration_config(migration_config),
-    m_num_threads(num_threads > 0 ? num_threads : omp_get_max_threads())
+    m_num_threads(num_threads > 0 ? num_threads : 4)
 {
 }
 
@@ -129,6 +134,7 @@ ParallelGAResult ParallelIslandGA::run(bool verbose) {
         std::cout << "-------------------------------------------------------\n";
     }
 
+#ifdef _OPENMP
     #pragma omp parallel num_threads(m_num_threads)
     {
         int tid = omp_get_thread_num();
@@ -247,6 +253,107 @@ ParallelGAResult ParallelIslandGA::run(bool verbose) {
         // Store each island's best solution
         result.island_best_solutions[tid] = local_pop[0];
     } // End of OpenMP parallel region
+#else
+    // Multi-island execution with ring migration topology
+    std::vector<std::mt19937> thread_rngs;
+    thread_rngs.reserve(m_num_threads);
+    for (int tid = 0; tid < m_num_threads; ++tid) {
+        thread_rngs.emplace_back(m_config.random_seed + tid * 10007 + 1);
+        std::vector<Chromosome>& local_pop = all_islands[tid];
+        initializeIslandPopulation(local_pop, pop_per_island, thread_rngs[tid]);
+        evaluateIslandPopulation(local_pop);
+        std::sort(local_pop.begin(), local_pop.end(), std::greater<Chromosome>());
+    }
+
+    for (int gen = 0; gen < m_config.max_generations; ++gen) {
+        double global_sum_fit = 0.0;
+        Chromosome global_best = all_islands[0][0];
+
+        for (int i = 0; i < m_num_threads; ++i) {
+            for (const auto& ind : all_islands[i]) {
+                global_sum_fit += ind.fitness;
+            }
+            if (all_islands[i][0].fitness > global_best.fitness) {
+                global_best = all_islands[i][0];
+            }
+        }
+
+        double avg_fitness = global_sum_fit / result.population_size;
+        auto now = std::chrono::high_resolution_clock::now();
+        double elapsed_ms = std::chrono::duration<double, std::milli>(now - start_time).count();
+
+        GenerationLog log;
+        log.generation = gen + 1;
+        log.best_fitness = global_best.fitness;
+        log.avg_fitness = avg_fitness;
+        log.worst_fitness = all_islands[0].back().fitness;
+        log.best_nutr_score = global_best.scores.f_nutr;
+        log.best_expiry_score = global_best.scores.f_expiry;
+        log.best_cost_score = global_best.scores.out_of_pocket_cost;
+        log.best_waste_score = global_best.scores.f_waste;
+        log.best_cal = global_best.scores.total_calories;
+        log.best_prot = global_best.scores.total_protein;
+        log.best_carb = global_best.scores.total_carbs;
+        log.best_fat = global_best.scores.total_fat;
+        log.execution_time_ms = elapsed_ms;
+        result.history.push_back(log);
+
+        if (verbose && ((gen + 1) % 10 == 0 || gen == 0 || gen == m_config.max_generations - 1)) {
+            std::cout << std::setw(6) << (gen + 1)
+                      << std::setw(12) << std::fixed << std::setprecision(4) << global_best.fitness
+                      << std::setw(12) << std::fixed << std::setprecision(4) << avg_fitness
+                      << std::setw(10) << std::fixed << std::setprecision(3) << global_best.scores.f_nutr
+                      << std::setw(10) << std::fixed << std::setprecision(3) << global_best.scores.f_expiry
+                      << std::setw(10) << std::fixed << std::setprecision(2) << global_best.scores.out_of_pocket_cost
+                      << std::setw(10) << std::fixed << std::setprecision(1) << elapsed_ms << "\n";
+        }
+
+        for (int tid = 0; tid < m_num_threads; ++tid) {
+            std::vector<Chromosome>& local_pop = all_islands[tid];
+            std::vector<Chromosome> next_pop;
+            next_pop.reserve(pop_per_island);
+
+            int elites = std::min(m_config.elitism_count, pop_per_island);
+            for (int e = 0; e < elites; ++e) {
+                next_pop.push_back(local_pop[e]);
+            }
+
+            while (static_cast<int>(next_pop.size()) < pop_per_island) {
+                int p1 = tournamentSelect(local_pop, thread_rngs[tid]);
+                int p2 = tournamentSelect(local_pop, thread_rngs[tid]);
+
+                Chromosome child = crossover(local_pop[p1], local_pop[p2], thread_rngs[tid]);
+                mutate(child, thread_rngs[tid]);
+                next_pop.push_back(child);
+            }
+
+            local_pop = std::move(next_pop);
+            evaluateIslandPopulation(local_pop);
+            std::sort(local_pop.begin(), local_pop.end(), std::greater<Chromosome>());
+        }
+
+        if (m_num_threads > 1 && (gen + 1) % m_migration_config.migration_interval == 0) {
+            for (int tid = 0; tid < m_num_threads; ++tid) {
+                migration_buffer.prepareSend(tid, all_islands[tid], m_migration_config.migration_size);
+            }
+            for (int tid = 0; tid < m_num_threads; ++tid) {
+                const auto& incoming = migration_buffer.receiveFromNeighbor(tid, m_migration_config.topology);
+                int replace_start = pop_per_island - static_cast<int>(incoming.size());
+                for (size_t k = 0; k < incoming.size(); ++k) {
+                    if (replace_start + static_cast<int>(k) < pop_per_island) {
+                        all_islands[tid][replace_start + k] = incoming[k];
+                    }
+                }
+                std::sort(all_islands[tid].begin(), all_islands[tid].end(), std::greater<Chromosome>());
+            }
+            result.total_migrations += m_num_threads * m_migration_config.migration_size;
+        }
+    }
+
+    for (int tid = 0; tid < m_num_threads; ++tid) {
+        result.island_best_solutions[tid] = all_islands[tid][0];
+    }
+#endif
 
     // Global best reduction
     result.best_solution = result.island_best_solutions[0];

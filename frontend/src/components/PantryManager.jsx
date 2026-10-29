@@ -1,5 +1,9 @@
 import React, { useState } from 'react';
-import { Refrigerator, Plus, Trash2, AlertCircle, Sparkles, RefreshCw, Check, LayoutGrid, List, Flame, Zap, ShieldAlert, IndianRupee } from 'lucide-react';
+import {
+  Refrigerator, Plus, Trash2, AlertCircle, Sparkles, RefreshCw, Check,
+  LayoutGrid, List, Flame, Zap, ShieldAlert, IndianRupee, Info
+} from 'lucide-react';
+import { traceManager } from '../services/traceManager';
 
 const INGREDIENT_PHOTOS = {
   'mushrooms': '/images/mushrooms_basket.jpg',
@@ -73,6 +77,46 @@ export default function PantryManager({ pantryItems, onAddItem, onDeleteItem, on
     : pantryItems.filter(item => item.category?.toLowerCase() === selectedCategory.toLowerCase());
 
   const totalEstimatedValue = pantryItems.reduce((acc, it) => acc + (it.quantity * (it.estimated_unit_cost || 0)), 0);
+
+  const handleCategorySelect = (cat) => {
+    traceManager.recordTrace({
+      actionId: 'PANTRY_FILTER_CATEGORY',
+      component: 'PantryManager.jsx',
+      handler: `onClick={() => handleCategorySelect("${cat}")}`,
+      stateChanges: [`selectedCategory: "${cat}"`]
+    });
+    setSelectedCategory(cat);
+  };
+
+  const handleViewModeToggle = (mode) => {
+    traceManager.recordTrace({
+      actionId: 'PANTRY_SWITCH_VIEW_MODE',
+      component: 'PantryManager.jsx',
+      handler: `onClick={() => handleViewModeToggle("${mode}")}`,
+      stateChanges: [`viewMode: "${mode}"`]
+    });
+    setViewMode(mode);
+  };
+
+  const handleOpenAddModal = () => {
+    traceManager.recordTrace({
+      actionId: 'PANTRY_OPEN_ADD_MODAL',
+      component: 'PantryManager.jsx',
+      handler: 'onClick={handleOpenAddModal}',
+      stateChanges: ['showAddModal: true']
+    });
+    setShowAddModal(true);
+  };
+
+  const handleCloseAddModal = () => {
+    traceManager.recordTrace({
+      actionId: 'PANTRY_CLOSE_ADD_MODAL',
+      component: 'PantryManager.jsx',
+      handler: 'onClick={handleCloseAddModal}',
+      stateChanges: ['showAddModal: false']
+    });
+    setShowAddModal(false);
+  };
 
   const handleAddSubmit = (e) => {
     e.preventDefault();
@@ -157,7 +201,7 @@ export default function PantryManager({ pantryItems, onAddItem, onDeleteItem, on
             <span>🔄 Reset Stock</span>
           </button>
           <button
-            onClick={() => setShowAddModal(true)}
+            onClick={handleOpenAddModal}
             className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-md shadow-emerald-600/20 transition cursor-pointer"
           >
             <Plus className="w-4 h-4" />
@@ -172,7 +216,7 @@ export default function PantryManager({ pantryItems, onAddItem, onDeleteItem, on
           {categories.map((cat) => (
             <button
               key={cat}
-              onClick={() => setSelectedCategory(cat)}
+              onClick={() => handleCategorySelect(cat)}
               className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition ${
                 selectedCategory === cat
                   ? 'bg-emerald-600 text-white shadow-xs'
@@ -186,14 +230,14 @@ export default function PantryManager({ pantryItems, onAddItem, onDeleteItem, on
 
         <div className="flex items-center space-x-1 self-end sm:self-auto bg-slate-100 p-1 rounded-xl">
           <button
-            onClick={() => setViewMode('grid')}
+            onClick={() => handleViewModeToggle('grid')}
             className={`p-1.5 rounded-lg transition ${viewMode === 'grid' ? 'bg-white text-emerald-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
             title="Grid View"
           >
             <LayoutGrid className="w-4 h-4" />
           </button>
           <button
-            onClick={() => setViewMode('table')}
+            onClick={() => handleViewModeToggle('table')}
             className={`p-1.5 rounded-lg transition ${viewMode === 'table' ? 'bg-white text-emerald-700 shadow-xs' : 'text-slate-500 hover:text-slate-800'}`}
             title="Table View"
           >
@@ -339,7 +383,7 @@ export default function PantryManager({ pantryItems, onAddItem, onDeleteItem, on
                 <span>Add Pantry Ingredient</span>
               </h3>
               <button
-                onClick={() => setShowAddModal(false)}
+                onClick={handleCloseAddModal}
                 className="text-slate-400 hover:text-slate-600 text-sm font-bold"
               >
                 ✕
@@ -354,7 +398,15 @@ export default function PantryManager({ pantryItems, onAddItem, onDeleteItem, on
                   required
                   placeholder="e.g. Greek Yogurt, Tomatoes, Pasta"
                   value={newItem.ingredient_name}
-                  onChange={(e) => setNewItem({ ...newItem, ingredient_name: e.target.value })}
+                  onChange={(e) => {
+                    traceManager.recordTrace({
+                      actionId: 'PANTRY_FORM_INPUT_CHANGE',
+                      component: 'PantryManager.jsx',
+                      handler: 'onChange={(e) => setNewItem({ ...newItem, ingredient_name })}',
+                      stateChanges: [`newItem.ingredient_name: "${e.target.value}"`]
+                    });
+                    setNewItem({ ...newItem, ingredient_name: e.target.value });
+                  }}
                   className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:border-emerald-500 font-medium"
                 />
               </div>
@@ -428,14 +480,14 @@ export default function PantryManager({ pantryItems, onAddItem, onDeleteItem, on
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold transition"
+                  onClick={handleCloseAddModal}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-semibold transition cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-md shadow-emerald-600/20 transition"
+                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow-md shadow-emerald-600/20 transition cursor-pointer"
                 >
                   Save Ingredient
                 </button>

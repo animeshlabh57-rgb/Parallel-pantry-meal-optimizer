@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Cpu, Zap, Activity, Award, Layers, RefreshCw, BarChart2, TrendingUp, Info } from 'lucide-react';
+import { traceManager } from '../services/traceManager';
 
 export default function HPCMetricsDashboard({ performanceData, onRefresh }) {
   const [selectedScenario, setSelectedScenario] = useState(3); // Default to Stress Load (Scenario 4)
@@ -17,8 +18,40 @@ export default function HPCMetricsDashboard({ performanceData, onRefresh }) {
   const seqTime = currentSc.sequential.mean_time_ms;
   const bestParallel = currentSc.parallel_runs.reduce((prev, curr) => (curr.speedup > prev.speedup ? curr : prev), currentSc.parallel_runs[0]);
 
+  const handleScenarioChange = (e) => {
+    const idx = parseInt(e.target.value);
+    traceManager.recordTrace({
+      actionId: 'HPC_SELECT_SCENARIO',
+      component: 'HPCMetricsDashboard.jsx',
+      handler: `onChange={(e) => setSelectedScenario(${idx})}`,
+      stateChanges: [`selectedScenario: ${idx}`]
+    });
+    setSelectedScenario(idx);
+  };
+
+  const handleRefreshClick = () => {
+    traceManager.recordTrace({
+      actionId: 'HPC_REFRESH_BENCHMARKS',
+      component: 'HPCMetricsDashboard.jsx',
+      handler: 'onClick={onRefresh} -> fetchPerformance()',
+      stateChanges: ['performanceData: re-fetched']
+    });
+    onRefresh();
+  };
+
   return (
     <div className="space-y-6">
+      {/* Educational Notice Distinguishing Prerecorded Benchmarks vs Live Run */}
+      <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-2xl flex items-start gap-3 text-xs text-indigo-950">
+        <Info className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
+        <div>
+          <strong className="font-bold text-indigo-900 block text-sm">Prerecorded Empirical Benchmarks Suite:</strong>
+          <p className="mt-0.5 text-indigo-800 leading-relaxed">
+            The data below represents verified scientific benchmark trials averaged over multiple repetitions across standardized scenarios. Clicking "Refresh" reloads this saved dataset from <code>results/tables/benchmark_results_summary.json</code>; it does not trigger a new C++ benchmark sweep.
+          </p>
+        </div>
+      </div>
+
       {/* Header & Scenario Selector */}
       <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -37,8 +70,8 @@ export default function HPCMetricsDashboard({ performanceData, onRefresh }) {
           <label className="text-xs text-slate-600 font-semibold">Scenario Scale:</label>
           <select
             value={selectedScenario}
-            onChange={(e) => setSelectedScenario(parseInt(e.target.value))}
-            className="bg-slate-50 border border-slate-300 text-xs text-slate-800 rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-500 font-semibold"
+            onChange={handleScenarioChange}
+            className="bg-slate-50 border border-slate-300 text-xs text-slate-800 rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-500 font-semibold cursor-pointer"
           >
             {performanceData.map((sc, idx) => (
               <option key={idx} value={idx}>
@@ -47,9 +80,9 @@ export default function HPCMetricsDashboard({ performanceData, onRefresh }) {
             ))}
           </select>
           <button
-            onClick={onRefresh}
+            onClick={handleRefreshClick}
             className="p-2 text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-xl transition cursor-pointer"
-            title="Refresh Benchmarks"
+            title="Refresh Saved Benchmarks"
           >
             <RefreshCw className="w-4 h-4" />
           </button>
@@ -141,7 +174,7 @@ export default function HPCMetricsDashboard({ performanceData, onRefresh }) {
       <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-xs">
         <h3 className="text-base font-bold text-slate-900 flex items-center gap-2 mb-4">
           <Layers className="w-5 h-5 text-indigo-600" />
-          <span>Coarse-Grained Island Model with Ring Topology Migration</span>
+          <span>Coarse-Grained Island Model with Ring Topology Migration (Illustrative Diagram)</span>
         </h3>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
           {[0, 1, 2, 3].map((islandId) => (
@@ -159,7 +192,7 @@ export default function HPCMetricsDashboard({ performanceData, onRefresh }) {
           ))}
         </div>
         <p className="text-xs text-slate-500 text-center mt-4">
-          Periodic Ring Migration every 15 generations transfers top 2 elite chromosomes to neighboring islands, maintaining genetic diversity and preventing premature local stagnation.
+          Periodic Ring Migration every 10 generations transfers top 2 elite chromosomes to neighboring islands, maintaining genetic diversity and preventing premature local stagnation.
         </p>
       </div>
 
@@ -209,4 +242,3 @@ export default function HPCMetricsDashboard({ performanceData, onRefresh }) {
     </div>
   );
 }
-

@@ -38,6 +38,13 @@ data_dir = os.path.join(FRONTEND_DIST, "data")
 if os.path.exists(data_dir):
     app.mount("/data", StaticFiles(directory=data_dir), name="data")
 
+from backend.main import app as backend_api_app
+
+# Include backend endpoints directly in root app
+for route in backend_api_app.routes:
+    if hasattr(route, "path") and route.path not in ["/", "/{full_path:path}"]:
+        app.routes.append(route)
+
 @app.get("/api/health")
 def health_check():
     return {"status": "ok", "project": "Parallel Pantry Meal Optimizer", "version": "1.0.0"}

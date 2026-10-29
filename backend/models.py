@@ -3,7 +3,7 @@ Pydantic API Schemas for Requests and Responses
 """
 
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Any, Dict
 
 class PantryItemCreate(BaseModel):
     ingredient_name: str
@@ -38,6 +38,7 @@ class OptimizeRequest(BaseModel):
     target_carbs: float = 220.0
     target_fat: float = 65.0
     required_dietary_tags: List[str] = []
+    correlation_id: Optional[str] = None
 
 class RecipeRecommendation(BaseModel):
     slot: str # "Breakfast", "Lunch", "Dinner", "Snack"
@@ -59,7 +60,6 @@ class RecipeRecommendation(BaseModel):
     chef_tips: Optional[str] = None
     image_url: Optional[str] = None
 
-
 class OptimizationResponse(BaseModel):
     algorithm: str
     num_threads: int
@@ -72,6 +72,7 @@ class OptimizationResponse(BaseModel):
     expiring_items_rescued_count: int
     macro_totals: dict
     recommendations: List[RecipeRecommendation]
+    trace_meta: Optional[Dict[str, Any]] = None
 
 class SimulatePantryChangeRequest(BaseModel):
     action: str # "consume", "add", "spoil_warning", "reset"

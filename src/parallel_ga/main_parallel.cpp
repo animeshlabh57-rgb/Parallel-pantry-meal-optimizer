@@ -8,7 +8,12 @@
 #include <string>
 #include <vector>
 #include <iomanip>
+#ifdef _OPENMP
 #include <omp.h>
+#else
+inline int omp_get_max_threads() { return 4; }
+inline int omp_get_thread_num() { return 0; }
+#endif
 
 using namespace meal_planner;
 

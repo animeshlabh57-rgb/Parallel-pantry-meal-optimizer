@@ -2,7 +2,7 @@
  * Client-Side Optimization & State Service
  * Enables 100% standalone, zero-error, instant operation on Vercel / Cloud deployments.
  * Seamlessly pairs with local FastAPI backend when online, and automatically provides
- * full client-side Genetic Algorithm optimization, strict dietary filtering,
+ * honest client-side heuristic optimization, strict dietary filtering,
  * recipe instructions, and state persistence when hosted on static/serverless Vercel.
  */
 
@@ -278,7 +278,13 @@ export function saveLocalPantry(items) {
   }
 }
 
+/**
+ * Honest Client-Side Optimizer Fallback
+ * Measures real execution time using window.performance.now()
+ * Clearly identifies execution as browser JavaScript rather than OpenMP native binary.
+ */
 export async function runClientOptimization(config, pantryList) {
+  const startTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
   const recipes = await fetchRecipesCatalog();
   const requiredTags = (config.required_dietary_tags || []).map(t => t.trim()).filter(Boolean);
 
@@ -315,6 +321,7 @@ export async function runClientOptimization(config, pantryList) {
   
   const pantryMap = {};
   let expiringRescued = 0;
+  const criticalItems = (pantryList || []).filter(p => p.days_to_expiry <= 2);
   (pantryList || []).forEach(p => {
     pantryMap[p.ingredient_name.toLowerCase()] = p;
     if (p.days_to_expiry <= 2) expiringRescued += 1;
@@ -329,7 +336,7 @@ export async function runClientOptimization(config, pantryList) {
     const scored = pool.map((rec, rIdx) => {
       let pantryMatches = 0;
       (rec.ingredients || []).forEach(ing => {
-        const norm = ing.name.toLowerCase();
+        const norm = (ing.name || '').toLowerCase();
         if (pantryMap[norm]) pantryMatches += 2.0;
         for (const k of Object.keys(pantryMap)) {
           if (norm.includes(k) || k.includes(norm)) pantryMatches += 1.0;
@@ -345,8 +352,11 @@ export async function runClientOptimization(config, pantryList) {
     chosenRecipes.push(selected);
   });
 
-  // Calculate totals
+  // Calculate totals and actual pantry usage
   let totCal = 0, totProt = 0, totCarb = 0, totFat = 0;
+  let totalEstimatedPantryCost = 0;
+  let missingIngredientsList = [];
+
   const recommendations = chosenRecipes.map((r, idx) => {
     const slotName = slots[idx];
     totCal += r.calories || 400;
@@ -355,7 +365,7 @@ export async function runClientOptimization(config, pantryList) {
     totFat += r.fat_g || 12;
 
     const usedFromPantry = [];
-    const optionalGarnish = [];
+    const missingIngredients = [];
     let mealCost = 0;
 
     (r.ingredients || []).forEach(ing => {
@@ -365,7 +375,8 @@ export async function runClientOptimization(config, pantryList) {
         usedFromPantry.push(`${ing.name} (${Math.min(pItem.quantity, ing.quantity || 50)} ${ing.unit || 'g'})`);
         mealCost += (ing.quantity || 50) * (pItem.estimated_unit_cost || 0.05);
       } else {
-        optionalGarnish.push(`Optional Chef Garnish: ${ing.name} (${ing.quantity || 30} ${ing.unit || 'g'})`);
+        missingIngredients.push(`${ing.name} (${ing.quantity || 30} ${ing.unit || 'g'})`);
+        missingIngredientsList.push(ing.name);
       }
     });
 
@@ -374,6 +385,8 @@ export async function runClientOptimization(config, pantryList) {
         usedFromPantry.push(`${ing.name} (${ing.quantity || 50} ${ing.unit || 'g'})`);
       });
     }
+
+    totalEstimatedPantryCost += mealCost;
 
     const instructionsData = generateCookingInstructions(r.recipe_name, slotName, r.ingredients || [], r.preparation_time_min || 15);
 
@@ -387,33 +400,54 @@ export async function runClientOptimization(config, pantryList) {
       fat_g: r.fat_g || 12,
       prep_time_min: r.preparation_time_min || 15,
       cook_time_min: Math.max(5, Math.floor((r.preparation_time_min || 15) * 0.8)),
-      estimated_cost_usd: 0.0,
-      estimated_cost_inr: 0.0,
+      estimated_cost_usd: Math.round(mealCost * 10) / 10,
+      estimated_cost_inr: Math.round(mealCost * 10) / 10,
       dietary_tags: r.dietary_tags || [],
       ingredients_used_from_pantry: usedFromPantry,
-      missing_ingredients_to_buy: [],
-      optional_suggestions: optionalGarnish,
+      missing_ingredients_to_buy: missingIngredients,
+      optional_suggestions: missingIngredients.map(i => `Optional Chef Garnish: ${i}`),
       instructions: instructionsData.steps,
       chef_tips: instructionsData.chef_tip,
       image_url: getRecipeImageUrl(r.recipe_name, r.recipe_id, slotName)
     };
   });
 
-  const nutrSatisfaction = Math.min(99.5, Math.max(88.0, 100 - Math.abs(totCal - config.target_calories) / config.target_calories * 100));
-  const simExecutionTime = config.algorithm === 'parallel'
-    ? (config.num_threads === 8 ? 12.4 + (seed % 10) * 0.4 : 17.8 + (seed % 10) * 0.5)
-    : 48.2 + (seed % 10) * 0.8;
+  // Calculate real macronutrient target error
+  const calDelta = Math.abs(totCal - (config.target_calories || 2000)) / (config.target_calories || 2000);
+  const protDelta = Math.abs(totProt - (config.target_protein || 130)) / (config.target_protein || 130);
+  const carbDelta = Math.abs(totCarb - (config.target_carbs || 220)) / (config.target_carbs || 220);
+  const fatDelta = Math.abs(totFat - (config.target_fat || 65)) / (config.target_fat || 65);
+  const macroError = 0.25 * (calDelta + protDelta + carbDelta + fatDelta);
+  const nutrSatisfactionPercent = Math.max(0, Math.min(100, Math.round((1.0 - macroError) * 1000) / 10));
+
+  const expiryRatio = criticalItems.length > 0 ? Math.min(100, (expiringRescued / criticalItems.length) * 100) : 100;
+
+  // Real execution timing measured via performance.now()
+  const endTime = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  const actualExecutionTimeMs = Math.round((endTime - startTime) * 100) / 100;
+
+  // Real composite score based on the mathematical formulation
+  const compositeScore = Math.round((0.35 * (nutrSatisfactionPercent / 100.0) + 0.35 * (expiryRatio / 100.0) - 0.15 * (totalEstimatedPantryCost / 30.0)) * 1000) / 1000;
 
   return {
-    algorithm: config.algorithm === 'parallel' ? 'Parallel OpenMP Island GA' : 'Sequential GA',
-    num_threads: config.algorithm === 'parallel' ? config.num_threads : 1,
-    execution_time_ms: simExecutionTime,
-    best_fitness: 0.185 + (seed % 20) * 0.002,
-    nutrition_satisfaction_percent: Math.round(nutrSatisfaction * 10) / 10,
-    expiry_utilization_percent: Math.min(98.4, 75.0 + expiringRescued * 6.5),
+    algorithm: 'Browser JavaScript Heuristic GA (Fallback Mode)',
+    execution_mode: 'browser_fallback',
+    is_browser_fallback: true,
+    fallback_reason: 'FastAPI backend unreachable; running deterministic client-side heuristic optimizer',
+    requested_algorithm: config.algorithm || 'parallel',
+    requested_threads: config.num_threads || 4,
+    num_threads: 1, // Single-threaded JavaScript event loop
+    thread_note: 'OpenMP island multi-threading is unavailable in the browser JavaScript environment; execution ran single-threaded.',
+    execution_time_ms: actualExecutionTimeMs,
+    measurement_scope: 'Browser window.performance.now() (pure JavaScript evaluation time)',
+    best_fitness: compositeScore,
+    nutrition_satisfaction_percent: nutrSatisfactionPercent,
+    expiry_utilization_percent: Math.round(expiryRatio * 10) / 10,
     out_of_pocket_cost_usd: 0.0,
     out_of_pocket_cost_inr: 0.0,
-    expiring_items_rescued_count: expiringRescued || 4,
+    cost_note: 'In client fallback mode, missing ingredients are designated as optional garnishes; out-of-pocket costs are estimated as zero.',
+    expiring_items_rescued_count: expiringRescued,
+    hpc_metrics_available: false,
     macro_totals: {
       calories: Math.round(totCal),
       protein_g: Math.round(totProt),

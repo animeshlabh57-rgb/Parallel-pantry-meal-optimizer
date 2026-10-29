@@ -7,6 +7,8 @@ and high-speed C++ compiled binaries (sequential_ga.exe / parallel_ga.exe).
 import os
 import sys
 import json
+import time
+import uuid
 import random
 import tempfile
 import subprocess
@@ -313,10 +315,22 @@ def export_filtered_recipes_to_dat(temp_recipe_dat, filtered_recipes_list):
 
 
 def run_optimization(req):
+    t_start = time.perf_counter()
+    stages = []
+
+    # Stage 1: Load Vocabulary and Recipes
+    t0 = time.perf_counter()
     vocab = load_vocabulary()
     recipes_by_id = load_processed_recipes(req.dataset_tier)
+    t1 = time.perf_counter()
+    stages.append({
+        "stage": "1_load_inputs",
+        "description": f"Loaded ingredient vocabulary ({len(vocab)} terms) & {req.dataset_tier} recipes ({len(recipes_by_id)} entries)",
+        "duration_ms": round((t1 - t0) * 1000, 2)
+    })
 
-    # 1. Export current pantry to temporary .dat
+    # Stage 2: Create temp files and export pantry from SQLite
+    t0 = time.perf_counter()
     with tempfile.NamedTemporaryFile(suffix=".dat", delete=False) as tf:
         temp_pantry_dat = tf.name
 
@@ -327,8 +341,15 @@ def run_optimization(req):
 
     try:
         pantry_stock, pantry_unit_costs = export_db_pantry_to_dat(temp_pantry_dat, vocab)
+        t1 = time.perf_counter()
+        stages.append({
+            "stage": "2_export_pantry",
+            "description": f"Exported {len(pantry_stock)} SQLite pantry items to temp .dat format",
+            "duration_ms": round((t1 - t0) * 1000, 2)
+        })
 
-        # 2. Handle Strict Dietary Restrictions & Filter Tags
+        # Stage 3: Handle Strict Dietary Restrictions & Filter Tags
+        t0 = time.perf_counter()
         required_tags = [t.strip() for t in (req.required_dietary_tags or []) if t.strip()]
         
         if required_tags:
@@ -356,18 +377,28 @@ def run_optimization(req):
             
             export_filtered_recipes_to_dat(temp_filtered_recipe_dat, compliant_recipes)
             recipe_dat = temp_filtered_recipe_dat
+            filter_desc = f"Applied dietary filter ({required_tags}): {len(compliant_recipes)} candidate recipes exported"
         else:
             recipe_dat = os.path.join(PROCESSED_DIR, f"recipes_{req.dataset_tier}.dat")
             if not os.path.exists(recipe_dat):
                 recipe_dat = os.path.join(PROCESSED_DIR, "recipes_medium.dat")
+            filter_desc = f"No dietary constraints; using static dataset '{os.path.basename(recipe_dat)}'"
 
         # Dynamic Random Seed handling for instant recipe reshuffling
         seed_val = req.random_seed
         if seed_val <= 0:
             seed_val = random.randint(1, 1000000)
 
-        # 3. Prepare Command
-        if req.algorithm.lower() == "parallel":
+        t1 = time.perf_counter()
+        stages.append({
+            "stage": "3_dietary_filter",
+            "description": filter_desc,
+            "duration_ms": round((t1 - t0) * 1000, 2)
+        })
+
+        # Stage 4: Prepare Command & Launch C++ Executable
+        t0 = time.perf_counter()
+        if req.algorithm.lower() == "parallel" and os.path.exists(BIN_PAR):
             bin_exec = BIN_PAR
             cmd = [
                 bin_exec,
@@ -399,16 +430,23 @@ def run_optimization(req):
                 "--output_json", temp_out_json
             ]
 
-        # 4. Execute C++ Engine
+        # Execute C++ Engine subprocess
         res = subprocess.run(cmd, capture_output=True, text=True, cwd=BASE_DIR)
+        t1 = time.perf_counter()
         if res.returncode != 0:
             raise RuntimeError(f"C++ Optimizer failed: {res.stderr}")
 
-        # 5. Load JSON telemetry
+        stages.append({
+            "stage": "4_subprocess_execution",
+            "description": f"Subprocess exited (rc=0): {os.path.basename(bin_exec)} with {req.num_threads if req.algorithm.lower() == 'parallel' else 1} threads",
+            "duration_ms": round((t1 - t0) * 1000, 2)
+        })
+
+        # Stage 5: Load JSON telemetry & Enrich Recipe Recommendations
+        t0 = time.perf_counter()
         with open(temp_out_json, "r", encoding="utf-8-sig") as f:
             run_data = json.load(f)
 
-        # 6. Enrich with 100% Pantry-Sourced Meal Recommendations & Step-by-Step Cooking Guide
         slots = ["Breakfast", "Lunch", "Dinner", "Snack"]
         recommendations = []
         selected_ids = run_data.get("selected_recipes", [])
@@ -474,7 +512,15 @@ def run_optimization(req):
                 "image_url": get_recipe_image_url(r_meta["recipe_name"], slot_name, r_meta["recipe_id"])
             })
 
-        # 7. Save in SQLite History
+        t1 = time.perf_counter()
+        stages.append({
+            "stage": "5_enrich_recommendations",
+            "description": f"Parsed native JSON output; enriched {len(recommendations)} meal recommendations with step-by-step instructions and images",
+            "duration_ms": round((t1 - t0) * 1000, 2)
+        })
+
+        # Stage 6: Save in SQLite History
+        t0 = time.perf_counter()
         scores = run_data["best_scores"]
         conn = get_db_connection()
         cursor = conn.cursor()
@@ -497,6 +543,33 @@ def run_optimization(req):
         ))
         conn.commit()
         conn.close()
+        t1 = time.perf_counter()
+        stages.append({
+            "stage": "6_db_history_insert",
+            "description": "Appended run record to optimization_history SQLite table",
+            "duration_ms": round((t1 - t0) * 1000, 2)
+        })
+
+        t_end = time.perf_counter()
+        total_bridge_ms = round((t_end - t_start) * 1000, 2)
+
+        correlation_id = getattr(req, "correlation_id", None) or f"corr_{uuid.uuid4().hex[:8]}"
+
+        trace_meta = {
+            "correlation_id": correlation_id,
+            "algorithm_selected": req.algorithm,
+            "num_threads_requested": req.num_threads,
+            "executable_invoked": os.path.basename(bin_exec),
+            "command": " ".join([os.path.basename(cmd[0])] + cmd[1:]),
+            "dataset_tier": req.dataset_tier,
+            "random_seed": seed_val,
+            "c_execution_time_ms": run_data.get("execution_time_ms", 0.0),
+            "total_bridge_latency_ms": total_bridge_ms,
+            "stages": stages,
+            "temp_files_created": [f for f in [temp_pantry_dat, temp_out_json, temp_filtered_recipe_dat] if f],
+            "temp_files_cleaned": True,
+            "db_history_persisted": True
+        }
 
         return {
             "algorithm": run_data.get("algorithm", "Sequential GA"),
@@ -514,7 +587,8 @@ def run_optimization(req):
                 "carbs_g": round(scores["total_carbs"], 1),
                 "fat_g": round(scores["total_fat"], 1)
             },
-            "recommendations": recommendations
+            "recommendations": recommendations,
+            "trace_meta": trace_meta
         }
 
     finally:
